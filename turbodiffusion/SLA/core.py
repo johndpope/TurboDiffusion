@@ -93,19 +93,19 @@ class SparseLinearAttention(nn.Module):
         q = q.to(self.dtype)
         k = k.to(self.dtype)
         v = v.to(self.dtype)
-        c_q = self.feature_map_q(q).contiguous().to(self.dtype)
-        c_k = self.feature_map_k(k).contiguous().to(self.dtype)
-
         o_s = _attention.apply(q, k, v, sparse_map, lut, real_topk, self.BLKQ, self.BLKK)
+        
+        q = self.feature_map_q(q).contiguous().to(self.dtype) # c_q
+        k = self.feature_map_k(k).contiguous().to(self.dtype) # c_k
         def calc_linear(q, k, v):
             kvsum = k.transpose(-1, -2) @ v
             ksum = torch.sum(k, dim=-2, keepdim=True)
             return (q @ kvsum) / (1e-5 + (q * ksum).sum(dim=-1, keepdim=True))
-        o_l = calc_linear(c_q, c_k, v)
+        o_l = calc_linear(q, k, v)
 
         with torch.amp.autocast('cuda', dtype=self.dtype):
-            o_proj = self.proj_l(o_l)
-        o = (o_s + o_proj).to(dtype).transpose(1, 2)
+            o_l = self.proj_l(o_l)
+        o = (o_s + o_l).to(dtype).transpose(1, 2)
 
         if return_sparsity:
             return o, real_topk / sparse_map.shape[-1]
@@ -185,8 +185,6 @@ class SageSparseLinearAttention(nn.Module):
         q = q.to(self.dtype)
         k = k.to(self.dtype)
         v = v.to(self.dtype)
-        c_q = self.feature_map_q(q).contiguous().to(self.dtype)
-        c_k = self.feature_map_k(k).contiguous().to(self.dtype)
 
         ########## SPARGE BEGIN ##########
 
@@ -224,15 +222,17 @@ class SageSparseLinearAttention(nn.Module):
 
         ########## SPARGE END ##########
 
+        q = self.feature_map_q(q).contiguous().to(self.dtype) # c_q
+        k = self.feature_map_k(k).contiguous().to(self.dtype) # c_k
         def calc_linear(q, k, v):
             kvsum = k.transpose(-1, -2) @ v
             ksum = torch.sum(k, dim=-2, keepdim=True)
-            return (q @ kvsum) / (q * ksum).sum(dim=-1, keepdim=True)
-        o_l = calc_linear(c_q, c_k, v)
+            return (q @ kvsum) / (1e-5 + (q * ksum).sum(dim=-1, keepdim=True))
+        o_l = calc_linear(q, k, v)
 
         with torch.amp.autocast('cuda', dtype=self.dtype):
-            o_proj = self.proj_l(o_l)
-        o = (o_s + o_proj).to(dtype).transpose(1, 2)
+            o_l = self.proj_l(o_l)
+        o = (o_s + o_l).to(dtype).transpose(1, 2)
 
         if return_sparsity:
             return o, real_topk / sparse_map.shape[-1]
