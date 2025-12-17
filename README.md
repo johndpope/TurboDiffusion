@@ -4,10 +4,10 @@
 <img src=assets/TurboDiffusion_Logo.png width="30%"/>
 </div>
 
-This repository provides the official implementation of **TurboDiffusion**, a video generation acceleration framework that can speed up end-to-end diffusion generation by $100 \sim 205\times$ on a single RTX 5090, while maintaining video quality.   
+This repository provides the official implementation of **TurboDiffusion**, a video generation acceleration framework that can speed up end-to-end diffusion generation by $100 \sim 200\times$ on a single RTX 5090, while maintaining video quality.   
 TurboDiffusion primarily uses [SageAttention](https://github.com/thu-ml/SageAttention), [SLA (Sparse-Linear Attention)](https://github.com/thu-ml/SLA) for attention acceleration, and [rCM](https://github.com/NVlabs/rcm) for timestep distillation.
 
-Paper: [TurboDiffusion: Accelerating Video Diffusion Models by 100--205 Times](https://jt-zhang.github.io/files/TurboDiffusion_Technical_Report.pdf)
+Paper: [TurboDiffusion: Accelerating Video Diffusion Models by 100--200 Times](https://jt-zhang.github.io/files/TurboDiffusion_Technical_Report.pdf)
 
 **Note**: the checkpoints and paper are not finalized, and will be updated later to improve quality and accuracy
 
@@ -574,13 +574,13 @@ We welcome community members to help maintain and extend TurboDiffusion. Welcome
 **If you use this code or find our work valuable, please cite:**
 ```
 @article{zhang2025turbodiffusion,
-  title={TurboDiffusion: Accelerating Video Diffusion Models by 100--205 Times},
+  title={TurboDiffusion: Accelerating Video Diffusion Models by 100--200 Times},
   author={Zhang, Jintao and Zheng, Kaiwen and Jiang, Kai and Wang, Haoxu and Stoica, Ion and Gonzalez, Joseph E. and Chen, Jianfei and Zhu, Jun},
   year={2025}
 }
 
 @software{turbodiffusion2025,
-  title={TurboDiffusion: Accelerating Video Diffusion Models by 100--205 Times},
+  title={TurboDiffusion: Accelerating Video Diffusion Models by 100--200 Times},
   author={The TurboDiffusion Team},
   url={https://github.com/thu-ml/TurboDiffusion},
   year={2025}
