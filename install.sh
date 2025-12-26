@@ -1,6 +1,7 @@
 #!/bin/bash
 # TurboDiffusion Installation Script
-# Handles git submodules and builds CUDA extensions for RTX 5090 (Blackwell)
+# For RTX 5090 (Blackwell) with CUDA 13.0
+# Target: media-msi.covershot.app
 
 set -e  # Exit on error
 
@@ -10,91 +11,249 @@ cd "$SCRIPT_DIR"
 echo "=============================================="
 echo "TurboDiffusion Installation Script"
 echo "=============================================="
+echo ""
 
+# =============================================================================
+# Check for Miniconda
+# =============================================================================
+check_conda() {
+    if command -v conda &> /dev/null; then
+        echo "✅ Conda found: $(conda --version)"
+        return 0
+    fi
+
+    # Check common install locations
+    for conda_path in ~/miniconda3/bin/conda ~/anaconda3/bin/conda /opt/conda/bin/conda; do
+        if [ -f "$conda_path" ]; then
+            echo "✅ Found conda at: $conda_path"
+            eval "$($conda_path shell.bash hook)"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+install_miniconda() {
+    echo ""
+    echo "❌ Conda/Miniconda not found!"
+    echo ""
+    echo "Please install Miniconda first:"
+    echo ""
+    echo "  # Download Miniconda (Linux x86_64)"
+    echo "  wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+    echo ""
+    echo "  # Install (follow prompts)"
+    echo "  bash Miniconda3-latest-Linux-x86_64.sh"
+    echo ""
+    echo "  # Restart shell or run:"
+    echo "  source ~/.bashrc"
+    echo ""
+    echo "  # Then re-run this script"
+    echo ""
+
+    read -p "Would you like to download and install Miniconda now? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "Downloading Miniconda..."
+        wget -q --show-progress https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh
+
+        echo "Installing Miniconda to ~/miniconda3..."
+        bash /tmp/miniconda.sh -b -p ~/miniconda3
+
+        echo "Initializing conda..."
+        ~/miniconda3/bin/conda init bash
+        eval "$(~/miniconda3/bin/conda shell.bash hook)"
+
+        rm /tmp/miniconda.sh
+        echo "✅ Miniconda installed!"
+        return 0
+    else
+        exit 1
+    fi
+}
+
+if ! check_conda; then
+    install_miniconda
+fi
+
+# Source conda for current shell
+if [ -f ~/miniconda3/etc/profile.d/conda.sh ]; then
+    source ~/miniconda3/etc/profile.d/conda.sh
+elif [ -f ~/anaconda3/etc/profile.d/conda.sh ]; then
+    source ~/anaconda3/etc/profile.d/conda.sh
+fi
+
+# =============================================================================
 # Check for CUDA
+# =============================================================================
+echo ""
+echo "Checking CUDA..."
+
 if ! command -v nvcc &> /dev/null; then
-    echo "ERROR: nvcc not found. Please install CUDA toolkit."
+    echo "⚠️  nvcc not found in PATH"
+    # Check common locations
+    for cuda_path in /usr/local/cuda-13.0 /usr/local/cuda-12.9 /usr/local/cuda; do
+        if [ -f "$cuda_path/bin/nvcc" ]; then
+            echo "   Found CUDA at: $cuda_path"
+            export PATH="$cuda_path/bin:$PATH"
+            export LD_LIBRARY_PATH="$cuda_path/lib64:$LD_LIBRARY_PATH"
+            break
+        fi
+    done
+fi
+
+if command -v nvcc &> /dev/null; then
+    CUDA_VERSION=$(nvcc --version | grep "release" | sed 's/.*release \([0-9]*\.[0-9]*\).*/\1/')
+    echo "✅ CUDA version: $CUDA_VERSION"
+else
+    echo "❌ CUDA not found. Please install CUDA 13.0 for RTX 5090 support."
     exit 1
 fi
 
-CUDA_VERSION=$(nvcc --version | grep "release" | sed 's/.*release \([0-9]*\.[0-9]*\).*/\1/')
-echo "CUDA version: $CUDA_VERSION"
-
-# Check for conda environment
-if [[ -z "$CONDA_DEFAULT_ENV" ]]; then
-    echo "WARNING: No conda environment active."
-    echo "Consider activating: conda activate turbodiffusion"
-    read -p "Continue anyway? [y/N] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
-else
-    echo "Conda environment: $CONDA_DEFAULT_ENV"
+# Check GPU
+if command -v nvidia-smi &> /dev/null; then
+    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
+    GPU_MEMORY=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader 2>/dev/null | head -1)
+    echo "✅ GPU: $GPU_NAME ($GPU_MEMORY)"
 fi
 
-# Check Python and PyTorch
+# =============================================================================
+# Create/Activate Conda Environment
+# =============================================================================
+ENV_NAME="turbodiffusion"
+
 echo ""
-echo "Checking Python environment..."
-python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')" || {
-    echo "ERROR: PyTorch not found or CUDA not available"
+echo "Setting up conda environment: $ENV_NAME"
+
+if conda env list | grep -q "^$ENV_NAME "; then
+    echo "   Environment '$ENV_NAME' already exists"
+    read -p "   Recreate environment? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "   Removing existing environment..."
+        conda env remove -n $ENV_NAME -y
+        echo "   Creating fresh environment..."
+        conda create -n $ENV_NAME python=3.12 -y
+    fi
+else
+    echo "   Creating new environment with Python 3.12..."
+    conda create -n $ENV_NAME python=3.12 -y
+fi
+
+echo "   Activating environment..."
+conda activate $ENV_NAME
+
+echo "✅ Python: $(python --version)"
+
+# =============================================================================
+# Install PyTorch with CUDA 13.0 (Nightly for Blackwell support)
+# =============================================================================
+echo ""
+echo "Installing PyTorch with CUDA 13.0 support..."
+echo "   (Nightly build required for RTX 5090/Blackwell)"
+
+pip3 install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu130
+
+# Verify PyTorch installation
+python -c "import torch; print(f'✅ PyTorch {torch.__version__}'); print(f'   CUDA available: {torch.cuda.is_available()}'); print(f'   CUDA version: {torch.version.cuda}')" || {
+    echo "❌ PyTorch installation failed"
     exit 1
 }
 
-# Initialize git submodules (CUTLASS)
+# =============================================================================
+# Install Dependencies
+# =============================================================================
+echo ""
+echo "Installing dependencies..."
+
+pip install psutil
+
+# =============================================================================
+# Initialize Git Submodules (CUTLASS)
+# =============================================================================
 echo ""
 echo "Initializing git submodules (CUTLASS)..."
+
 if [ -d ".git" ]; then
     git submodule update --init --recursive
-    echo "Submodules initialized."
+    echo "✅ Submodules initialized"
 else
-    echo "WARNING: Not a git repository. Checking if CUTLASS exists..."
+    echo "⚠️  Not a git repository, checking if CUTLASS exists..."
     if [ ! -f "turbodiffusion/ops/cutlass/include/cutlass/cutlass.h" ]; then
-        echo "ERROR: CUTLASS not found. Please clone with: git clone --recursive <repo>"
+        echo "❌ CUTLASS not found. Please clone with: git clone --recursive <repo>"
         exit 1
     fi
 fi
 
-# Verify CUTLASS headers exist
+# Verify CUTLASS headers
 if [ ! -f "turbodiffusion/ops/cutlass/include/cutlass/cutlass.h" ]; then
-    echo "ERROR: CUTLASS headers not found after submodule init"
+    echo "❌ CUTLASS headers not found after submodule init"
     exit 1
 fi
-echo "CUTLASS headers verified."
+echo "✅ CUTLASS headers verified"
 
-# Clean previous builds (optional)
+# =============================================================================
+# Build and Install TurboDiffusion
+# =============================================================================
+echo ""
+echo "Building TurboDiffusion..."
+echo "   Compiling CUDA kernels for: sm_80, sm_89, sm_90, sm_120a (Blackwell)"
+echo "   This may take several minutes..."
+echo ""
+
+# Clean previous builds if requested
 if [ "$1" == "--clean" ]; then
-    echo ""
     echo "Cleaning previous builds..."
     rm -rf build/ dist/ *.egg-info/
     find . -name "*.so" -path "*/turbodiffusion/*" -delete 2>/dev/null || true
-    echo "Clean complete."
 fi
-
-# Build and install
-echo ""
-echo "Building TurboDiffusion (this may take several minutes)..."
-echo "Compiling CUDA kernels for: sm_80 (Ampere), sm_89 (Ada), sm_90 (Hopper), sm_120a (Blackwell)"
-echo ""
 
 pip install -e . --no-build-isolation 2>&1 | tee build.log
 
-# Verify installation
+# =============================================================================
+# Install SpargeAttn (Sparse Attention for efficiency)
+# =============================================================================
+echo ""
+echo "Installing SpargeAttn..."
+
+pip install git+https://github.com/thu-ml/SpargeAttn.git --no-build-isolation
+
+# =============================================================================
+# Verify Installation
+# =============================================================================
 echo ""
 echo "Verifying installation..."
+
 python -c "
 import torch
 import turbo_diffusion_ops
-print('SUCCESS: turbo_diffusion_ops loaded')
-print('Available ops:', [x for x in dir(turbo_diffusion_ops) if not x.startswith('_')])
+print('✅ turbo_diffusion_ops loaded')
+print('   Available ops:', [x for x in dir(turbo_diffusion_ops) if not x.startswith('_')])
+
+try:
+    import spargeattn
+    print('✅ SpargeAttn loaded')
+except ImportError:
+    print('⚠️  SpargeAttn not available (optional)')
+
+print()
+print('GPU Info:')
+if torch.cuda.is_available():
+    print(f'   Device: {torch.cuda.get_device_name(0)}')
+    print(f'   VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB')
+    print(f'   Compute Capability: {torch.cuda.get_device_capability(0)}')
 "
 
 echo ""
 echo "=============================================="
-echo "Installation complete!"
+echo "✅ Installation complete!"
 echo "=============================================="
 echo ""
 echo "Usage:"
-echo "  import torch"
-echo "  import turbodiffusion"
+echo "  conda activate $ENV_NAME"
+echo "  python -c 'import turbodiffusion'"
+echo ""
+echo "To run the TUI server:"
+echo "  python -m turbodiffusion.tui_serve"
 echo ""
