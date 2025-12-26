@@ -1,7 +1,6 @@
 #!/bin/bash
 # TurboDiffusion Installation Script
 # For RTX 5090 (Blackwell) with CUDA 13.0
-# Target: media-msi.covershot.app
 
 set -e  # Exit on error
 
