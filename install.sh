@@ -211,6 +211,38 @@ fi
 pip install -e . --no-build-isolation 2>&1 | tee build.log
 
 # =============================================================================
+# Create Module Symlinks (for inference scripts)
+# =============================================================================
+echo ""
+echo "Creating module symlinks..."
+
+# The inference scripts import from top-level (e.g., 'from imaginaire.utils.io')
+# but modules are inside turbodiffusion/. Create symlinks at repo root.
+cd "$SCRIPT_DIR"
+
+for module in imaginaire rcm ops SLA; do
+    if [ -d "turbodiffusion/$module" ]; then
+        if [ ! -L "$module" ]; then
+            ln -sf "turbodiffusion/$module" "$module"
+            echo "   Created symlink: $module -> turbodiffusion/$module"
+        else
+            echo "   Symlink exists: $module"
+        fi
+    fi
+done
+
+# Verify symlinks work
+python -c "
+import sys
+sys.path.insert(0, '.')
+from imaginaire.utils.io import save_image_or_video
+from rcm.datasets.utils import VIDEO_RES_SIZE_INFO
+from ops import FastLayerNorm, FastRMSNorm, Int8Linear
+from SLA import SparseLinearAttention, SageSparseLinearAttention
+print('✅ All module imports working')
+" || echo "⚠️  Some imports failed - check symlinks"
+
+# =============================================================================
 # Install SpargeAttn (Sparse Attention for efficiency)
 # =============================================================================
 echo ""
@@ -231,8 +263,8 @@ print('✅ turbo_diffusion_ops loaded')
 print('   Available ops:', [x for x in dir(turbo_diffusion_ops) if not x.startswith('_')])
 
 try:
-    import spargeattn
-    print('✅ SpargeAttn loaded')
+    import spas_sage_attn
+    print('✅ SpargeAttn (spas_sage_attn) loaded')
 except ImportError:
     print('⚠️  SpargeAttn not available (optional)')
 

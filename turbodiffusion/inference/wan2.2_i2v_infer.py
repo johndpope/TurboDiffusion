@@ -15,6 +15,7 @@
 
 import argparse
 import math
+import os
 
 import torch
 from einops import rearrange, repeat
@@ -47,6 +48,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--sigma_max", type=float, default=200, help="Initial sigma for rCM")
     parser.add_argument("--vae_path", type=str, default="checkpoints/Wan2.1_VAE.pth", help="Path to the Wan2.1 VAE")
     parser.add_argument("--text_encoder_path", type=str, default="checkpoints/models_t5_umt5-xxl-enc-bf16.pth", help="Path to the umT5 text encoder")
+    parser.add_argument("--cached_embedding", type=str, default=None, help="Path to pre-cached T5 embeddings (from scripts/cache_t5.py)")
+    parser.add_argument("--skip_t5", action="store_true", help="Skip loading T5 model (requires --cached_embedding)")
     parser.add_argument("--num_frames", type=int, default=81, help="Number of frames to generate")
     parser.add_argument("--prompt", type=str, default=None, help="Text prompt for video generation (required unless --serve)")
     parser.add_argument("--resolution", default="720p", type=str, help="Resolution of the generated output")
@@ -82,10 +85,34 @@ if __name__ == "__main__":
         log.error("--image_path is required (unless using --serve mode)")
         exit(1)
 
-    log.info(f"Computing embedding for prompt: {args.prompt}")
-    with torch.no_grad():
-        text_emb = get_umt5_embedding(checkpoint_path=args.text_encoder_path, prompts=args.prompt).to(**tensor_kwargs)
-    clear_umt5_memory()
+    # Get text embedding - either from cache or by running T5
+    if args.cached_embedding and os.path.exists(args.cached_embedding):
+        log.info(f"Loading cached embedding from: {args.cached_embedding}")
+        cache_data = torch.load(args.cached_embedding, map_location='cpu')
+
+        # Find matching prompt or use first embedding
+        text_emb = None
+        for emb_data in cache_data.get('embeddings', []):
+            if emb_data['prompt'] == args.prompt:
+                text_emb = emb_data['embedding']
+                log.info(f"Found exact prompt match in cache")
+                break
+
+        if text_emb is None:
+            # Use first embedding if no exact match
+            text_emb = cache_data['embeddings'][0]['embedding']
+            log.warning(f"No exact prompt match, using cached embedding for: '{cache_data['embeddings'][0]['prompt'][:50]}...'")
+
+        text_emb = text_emb.to(**tensor_kwargs)
+        log.success(f"Loaded cached embedding, shape: {text_emb.shape}")
+    elif args.skip_t5:
+        log.error("--skip_t5 requires --cached_embedding with a valid path")
+        exit(1)
+    else:
+        log.info(f"Computing embedding for prompt: {args.prompt}")
+        with torch.no_grad():
+            text_emb = get_umt5_embedding(checkpoint_path=args.text_encoder_path, prompts=args.prompt).to(**tensor_kwargs)
+        clear_umt5_memory()
 
     log.info(f"Loading DiT models.")
     high_noise_model = create_model(dit_path=args.high_noise_model_path, args=args).cpu()
