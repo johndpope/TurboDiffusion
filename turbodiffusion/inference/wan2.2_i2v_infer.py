@@ -63,6 +63,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--quant_linear", action="store_true", help="Whether to replace Linear layers with quantized versions")
     parser.add_argument("--default_norm", action="store_true", help="Whether to replace LayerNorm/RMSNorm layers with faster versions")
     parser.add_argument("--serve", action="store_true", help="Launch interactive TUI server mode (keeps model loaded)")
+    parser.add_argument("--offload_dit", action="store_true", help="Offload DiT models before VAE decode (saves VRAM for high-res/long videos)")
     return parser.parse_args()
 
 
@@ -238,6 +239,18 @@ if __name__ == "__main__":
     samples = x.float()
     low_noise_model.cpu()
     torch.cuda.empty_cache()
+
+    # Offload DiT models completely before VAE decode if requested
+    if args.offload_dit:
+        log.info("Offloading DiT models to free VRAM for VAE decode...")
+        del high_noise_model
+        del low_noise_model
+        del net
+        torch.cuda.empty_cache()
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        log.success(f"VRAM freed. Available: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
 
     with torch.no_grad():
         video = tokenizer.decode(samples)
